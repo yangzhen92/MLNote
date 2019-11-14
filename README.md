@@ -1,1 +1,1 @@
-# myProject
+# my machine learning note
