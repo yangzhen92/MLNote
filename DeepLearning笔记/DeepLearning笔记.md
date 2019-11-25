@@ -1235,7 +1235,7 @@ VAE问题在于无法提取输入内部component之间的关联，在图像生�
 
 下面是VAE与GAN 的对比:
 
-![VAE_vs_GAN](/pic/VAE_vs_GAN.jpg)
+![VAE_vs_GAN](./pic/VAE_vs_GAN.jpg)
 
 ### 代码
 
@@ -1352,7 +1352,7 @@ Two models are trained simultaneously to find a [Nash equilibrium](https://en.wi
 
 ### [VAE vs GAN](#实验)
 
-### [详细讲解WGAN与原始GAN](<https://zhuanlan.zhihu.com/p/25071913>)
+### [详细讲解WGAN与原始GAN](https://zhuanlan.zhihu.com/p/25071913)
 
 ### [另一篇GAN详解（推荐）](<https://lilianweng.github.io/lil-log/2017/08/20/from-GAN-to-WGAN.html>)
 
