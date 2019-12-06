@@ -1348,6 +1348,58 @@ for iteration in range(n_iterations + 1):
 
 Two models are trained simultaneously to find a [Nash equilibrium](https://en.wikipedia.org/wiki/Nash_equilibrium) to a two-player non-cooperative game.
 
+## 前置理论
+
+### 原始公式
+
+$\min_\limits{G}\max_\limits{D}V(G,D)=\min_\limits{G}\max_\limits{D}E_{x\sim{P_{data}(x)}}[logD(x)]+E_{z\sim{P_{z}(z)}}[1-logD(G(z))]$
+
+原始GAN中，D的目的是区分真实数据和生成数据，做二分类，其中真实数据label为1，生成数据label为0，本质上是衡量real和gen之间的分布差异。G的目的是尽可能让gen和real之间的差异小，使得D在分类时的概率输出为0.5。
+
+### 从最大似然角度看G
+
+从$P_{data}$中采样$x_i$，希望找一个$\theta$使$P_G(x_i;\theta)$接近$P_{data}(x_i)$，自然从maximum log likelihood的角度出发，最终发现要需要最小化二者之间的KL divergence（KL散度在离散数据下可用$\sum$计算）：
+$$
+\theta^*=\arg\max_\limits{\theta}\pi_{i=1}^nP_G(x_i;\theta)\\
+=\arg\max_\limits{\theta}\sum_{i=1}^nlogP_G(x_i;\theta)\\
+\approx\arg\max_\limits{\theta}E_{x\sim{P_{data}(x)}}[logP_G(x_i;\theta)]\\
+=\arg\max_\limits{\theta}[\int_xP_{data}(x_i)logP_G(x_i;\theta)dx-\int_xP_{data}(x_i)logP_{data}(x_i)dx]（凑一个与G、\theta无关的项）\\
+=\arg\max_\limits{\theta}\int_xP_{data}(x_i)log\frac{P_G(x_i;\theta)}{P_{data}(x_i)}dx\\
+=\arg\min_\limits{\theta}KL(P_{data}||P_G)
+$$
+因为$P_{data}$本身就很复杂，我们没法给一个先验的$P_G(x_i;\theta)$（例如，假定各特征来自高斯分布再用GMM拟合，相对于data来说过于简单，以至于效果很差）。所以希望交个一个network去拟合一个复杂的$P_G(x_i;\theta)$。
+
+于是，可以从一个正态分布中采样一个向量z，通过network获得$x=G(z)$，由此获得一个复杂的分布$P_G(x)$。这时让$P_G(x_i;\theta)$尽可能相似$P_{data}(x_i)$，就能得到一个近似解。
+$$
+G^*=\arg\min\limits_GDivergence(P_G,P_{data})
+$$
+只有从z采样，就相当于从$P_{data}$中采样，以生成”真实“的数据。
+
+### 从divergence角度看D
+
+实际上，$P_G$和$P_{data}$都不知道，无法计算divergence，所以需要先从$P_G$和$P_{data}$采样一堆数据，用一个Discriminator来度量divergence。这个工作同样交个network来做。
+
+### 目标函数
+
+$$
+V(G,D)=\int_xP_{data}(x)logD(x)dx+\int_zP_z(z)log[1-D(G(z))]dz\\
+=\int_xP_{data}(x)logD(x)dx+\int_xP_g(x)log[1-D(x)]dx\\
+=\int_xP_{data}(x)logD(x)+P_g(x)log[1-D(x)]dx
+$$
+
+因为数据是离散的，对积分式子内的公式f求导，取e为底：
+$$
+\frac{\partial{f}}{\partial{D(x)}}=\frac{P_{data}}{D(x)}-\frac{P_g(x)}{1-D(x)}=0\\
+D^*=\frac{P_{data}(x)}{P_{data}(x)+P_g(x)}
+$$
+代回上面的目标函数，有：
+$$
+\max\limits_{D}V(D,G)=\int_xP_{data}(x)log\frac{P_{data}(x)\frac{1}{2}}{\frac{P_{data}(x)+P_g(x)}{2}}+P_{g}(x)log\frac{P_{g}(x)\frac{1}{2}}{\frac{P_{data}(x)+P_g(x)}{2}}dx\\
+=-log4+KL(P_{data}||\frac{P_{data}+Pg}{2})+KL(P_{g}||\frac{P_{data}+Pg}{2})\\
+=-log4+2JSD(P_{data}||P_g)
+$$
+Jensen-Shannon Divergence在两个分布相同时等于0，所以上式最优解为-log4，这也是原始GAN容易出现梯度为零，训不起来的原因。
+
 ## GAN对比
 
 ### [VAE vs GAN](#实验)
@@ -1443,6 +1495,59 @@ WGAN从实验效果上看基本解决了这个问题，其loss避开了原始GAN
 
 Without a good evaluation metric, it is like working in the dark. No good sign to tell when to stop; No good indicator to compare the performance of multiple models.
 
+## 评价指标
+
+### Inception score
+
+用的是Inception Net的预训练模型，所以如果自身目标领域不在其预训练模型里面，那么评分就没有参考价值。
+
+当图像中只有一个鲜明的物体时，输出的分类概率呈单峰状（可识别为具体类）。如果图像混杂，有多个物体，输出概率呈均匀分布。
+
+#### 高分条件
+
+* 多样性
+* 高品质（易识别，一张图像里面只有一个显著的大物体，而非多个小物体杂糅）
+
+#### 评分方法
+
+1. 希望生成的图像distinct（高品质）；把所有生成图像所得概率加起来又呈现均匀分布（多样性）
+2. 通过Inception分类器，对所有生成图像x都有分布$P(y|x)$。如果足够distinct，那么$P(y|x)$ 的熵就低；扫描latent z，可以得到边缘（marginal）分布$P(y)=\int_zP(y|x=G(z))dz$，如果多样性高，那么$P(y)$的熵就高
+3. 计算每个图像x的$KL(P(y|x)||P(y))$，也就是“既要又要”，再求平均后取exponential放大差异，$\exp[E_xKL(P(y|x)||P(y))]$
+
+#### 缺点
+
+* 只能用于被Inception Net分类的数据
+* 如果G被训练为只生成一种类别的图像（例如ECG），分数会很低，尽管有可能你的图像质量很高
+* 如果分类器无法检测与目标质量相关的特征，分数有可能会失真（一张图两个人头，这个不会被惩罚）
+* 没有类内多样性的评价
+* 如果G知识memorize训练数据，也会得高分
+
+### Frechet Inception Distance
+
+#### 方法
+
+==评分越低越好。==
+
+TensorFlow有现成的接口可以用。
+
+用过预训练的Inception V3提取全连接层之前的2048维向量作为特征。
+
+$FID=||\mu_{real}-\mu_{gen}||^2+trace(\sum_r+\sum_g-2(\sum_r\sum_g)^{\frac{1}{2}})$
+
+$\mu_{real}$：真实图像的特征的均值
+
+$\mu_{gen}$：生成图像的特征的均值
+
+$\sum_{real}$：真实图像的特征的协方差矩阵
+
+$\sum_{gen}$：生成图像的特征的协方差矩阵
+
+#### 缺点
+
+* FID计算的是多元正态分布的距离，抽出来的特征未必符合正态分布
+* 只取一层特征，未必够
+* 无法反映overfit现象
+
 ## 衍生与改进
 
 ### training trick
@@ -1486,17 +1591,23 @@ FID分数用于衡量图像质量，具有较好的参考性。
 
 ![GAN_theory2](/pic/GAN_theory2.jpg)
 
-==为了能够保证有效减少JS divergence，不要update generator太多次，因为这样会导致minimize后反倒会增加JS divergence：==
+==为了能够保证有效减少JS divergence，不要update generator太多次，因为这样会导致minimize后反倒会增加JS divergence，因为D是在fixed G的条件下去度量JSD：==
 
 ![GAN_theory4](/pic/GAN_theory4.jpg)
 
 #### 损失函数
 
-为什么最后变成minimize cross entropy，是因为经过一些推导后，减少JS divergence与之等价：
+为什么最后变成minimize cross entropy，是因为经过一些推导后，减少JS divergence与之等价。
+
+对于G，就是优化BCE(D(G(z)), 1)；
+
+对于D，优化BCE(D(x), 1)\BCE(D(G(z)), 0)。
 
 ![GAN_theory3](/pic/GAN_theory3.jpg)
 
 ### 算法
+
+==D、G的$x_i$各自采样==
 
 ![GAN_algorithm](/pic/GAN_algorithm.jpg)
 
@@ -1504,7 +1615,41 @@ FID分数用于衡量图像质量，具有较好的参考性。
 
 ## DCGAN
 
-主要用于图像生成，结合了卷积层。
+主要用于图像生成，主要贡献在于应用了转置卷积算子（convolution transpose），比起全连接要高效太多。
+
+### 卷积
+
+#### 常规卷积
+
+$o=\lfloor\frac{i-f+2p}{s}\rfloor+1$
+
+i：输入维度
+
+o：输出维度
+
+f：kernel size
+
+p：padding size
+
+s：stride
+
+#### 转置卷积
+
+1. padding='valid'，s=1
+
+   input的顶点只贡献到output的顶点，也就是kernel的顶角只接触到input的顶角。
+
+   所以可知p=f-1，于是$o=\lfloor\frac{i-f+2(f-1)}{s}\rfloor+1$。
+
+   例如2x2 input、3x3 kernel，先padding到6x6（左右各2个padding），然后按常规卷积s=1直接卷积得4
+
+   x4。
+
+2. padding='same'，s=2，f=3
+
+   要在原input各元素之间插入(s-1)个0，如3x3->5x5。
+
+   然后已知输出为6x6，在外圈padding，由公式得p=3，左侧填1列0，右侧填2列0。
 
 ### generator
 
