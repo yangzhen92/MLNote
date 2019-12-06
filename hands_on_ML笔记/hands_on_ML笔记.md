@@ -2501,13 +2501,7 @@ plt.fill_between(x_d, np.exp(log_prob), alpha=0.5) # 结果同上，y轴数值�
 
 一般用GridSearchCV找最优设定。
 
-## CatBoost
 
-### grow policy
-
-- SymmetricTree（默认）：A tree is built level by level until the specified depth is reached. On each iteration, all leaves from the last tree level are split with the same condition. The resulting tree structure is always symmetric.
-- Depthwise（XGB的方式）：A tree is built level by level until the specified depth is reached. On each iteration, all non-terminal leaves from the last tree level are split. Each leaf is split by condition with the best loss improvement.
-- Lossguide（LGB的方式）：A tree is built leaf by leaf until the specified maximum number of leaves is reached. On each iteration, non-terminal leaf with the best loss improvement is split.
 
 # 采样方法（resampling）
 
@@ -2521,9 +2515,9 @@ plt.fill_between(x_d, np.exp(log_prob), alpha=0.5) # 结果同上，y轴数值�
 from imblearn.over_sampling import RandomOverSampler
 ```
 
-## SMOTE(Synthetic Minority Oversampling Technique)
+### SMOTE(Synthetic Minority Oversampling Technique)
 
-### 算法
+#### 算法
 
 1. 对于少数类的每一个样本x，找kNN。
 2. 从NN中随机抽一个样本$\hat{x}$。
@@ -2536,7 +2530,7 @@ from imblearn.over_sampling import RandomOverSampler
 
 ![sampling2](./pic/sampling2.png)
 
-### 缺陷
+#### 缺陷
 
 * 由于负类样本的分布决定了其可选择的近邻,如果一个负类样本处在负类样本集的分布边缘,则由此负类样本和相邻样本产生的“人造”样本也会处在这个边缘,且会越来越边缘化,从而模糊了正类样本和负类样本的边界,而且使边界变得越来越模糊。这种边界模糊性,虽然使数据集的平衡性得到了改善,但加大了分类算法进行分类的难度。
 
@@ -2575,6 +2569,12 @@ BorderlineSMOTE(sampling_strategy='auto', random_state=None, k_neighbors=5, n_jo
 ```
 
 ![sampling3](./pic/sampling3.png)
+
+## 下采样（降采样）
+
+待补充
+
+
 
 # 多重共线性
 
@@ -2663,3 +2663,57 @@ factor:
 - season，季节变动
 - cyclic，循环变动
 - irregular，不规则运动
+
+# Boost系列
+
+## XGBoost
+
+#### 基础公式
+
+##### 损失函数
+
+一方面是上一轮模型加上本轮模型的损失，另一方面是当前集成模型的复杂度
+
+总的损失函数：$L^{(t)}=\sum_{i=1}^nl(y_i,\hat{y}_i^{t-1}+f_t(x_i))+\sum_t\Omega(f_t)$
+
+树的复杂度：$\Omega(f_t)=\gamma T+\frac{1}{2}\lambda\sum_{j=1}^Tw_j^2$，**原始论文只用了L2正则，实际模型支持L1**。里面的$w_j$就是叶节点的分数，下面的$f_t(x_i)$可以标识为$w_j$；$T$表示数的数量。
+
+使用二阶泰勒展开：$f(x+\Delta x)\approx f(x)+f^{'}(x)\Delta x+\frac{1}{2}f^{''}(x)\Delta^2 x$
+
+$L^{(t)}\approx\sum_{i=1}^n[l(y_i,\hat{y}_i^{t-1})+g_if_t(x_i)+\frac{1}{2}h_if_t^2(x_i)]+\sum_t\Omega(f_t)$
+
+$g_i=\frac{\partial{l(y_i,\hat{y}_i^{t-1})}}{\partial\hat{y}_i^{t-1}}$
+
+$h_i=\frac{\partial{l^2(y_i,\hat{y}_i^{t-1})}}{\partial{\hat{y}_i^{t-1}}^2}$
+
+移除掉常数项：
+
+$L^{(t)}\approx\sum_{i=1}^n[g_if_t(x_i)+\frac{1}{2}h_if_t^2(x_i)]+\sum_t\Omega(f_t)$
+
+替换$f_t(x_i)$为$w_j$，做一下符合整合：
+
+$L^{(t)}=\sum_{j=1}^T[(\sum_{i\in I_j})w_j+\frac{1}{2}(\sum_{i\in I_j}h_i+\lambda)w_j^2]+\gamma T$
+
+其中$I_j$表示叶节点j的样本。对于当前树结构，有最优的L，对w求导：
+
+$\frac{\partial L^{(t)}}{\partial w_j}=\sum_{j=1}^T[(\sum_{i\in I_j})+(\sum_{i\in I_j}h_i+\lambda)w_j]=0$
+
+$w_j^*=-\frac{\sum_{i\in I_j}g_i}{\sum_{i\in I_j}h_i+\lambda}$
+
+令$G=\sum_{i\in I_j}g_i$，$H=\sum_{i\in I_j}h_i$，最优解L为：
+
+$L^{(t)}=-\frac{1}{2}\sum_{j=1}^T\frac{G^2}{H+\lambda}+\gamma T$
+
+这就是xgb里面的impurity。
+
+所以分裂时，可以计算如下增益：
+
+$L_{split}=\frac{1}{2}[\frac{G_L^2}{H_L+\lambda}+\frac{G_R^2}{H_R+\lambda}-\frac{G^2}{H+\lambda}]-\gamma$
+
+## CatBoost
+
+### grow policy
+
+- SymmetricTree（默认）：A tree is built level by level until the specified depth is reached. On each iteration, all leaves from the last tree level are split with the same condition. The resulting tree structure is always symmetric.
+- Depthwise（XGB的方式）：A tree is built level by level until the specified depth is reached. On each iteration, all non-terminal leaves from the last tree level are split. Each leaf is split by condition with the best loss improvement.
+- Lossguide（LGB的方式）：A tree is built leaf by leaf until the specified maximum number of leaves is reached. On each iteration, non-terminal leaf with the best loss improvement is split.
