@@ -2668,47 +2668,307 @@ factor:
 
 ## XGBoost
 
-#### 基础公式
+* 支持学习率（shrinkage）
+* 支持列采样、行采样
 
-##### 损失函数
+### 基础公式
 
 一方面是上一轮模型加上本轮模型的损失，另一方面是当前集成模型的复杂度
 
-总的损失函数：$L^{(t)}=\sum_{i=1}^nl(y_i,\hat{y}_i^{t-1}+f_t(x_i))+\sum_t\Omega(f_t)$
+总的损失函数：
+$$
+L^{(t)}=\sum_{i=1}^nl(y_i,\hat{y}_i^{t-1}+f_t(x_i))+\Omega(f_t)
+$$
+树的复杂度：
+$$
+\Omega(f_t)=\gamma T+\frac{1}{2}\lambda\sum_{j=1}^Tw_j^2
+$$
+**原始论文只用了L2正则，实际模型支持L1**
 
-树的复杂度：$\Omega(f_t)=\gamma T+\frac{1}{2}\lambda\sum_{j=1}^Tw_j^2$，**原始论文只用了L2正则，实际模型支持L1**。里面的$w_j$就是叶节点的分数，下面的$f_t(x_i)$可以标识为$w_j$；$T$表示数的数量。
+**里面的$w_j$就是叶节点的分数，下面的$f_t(x_i)$可以标识为$w_j$**
 
-使用二阶泰勒展开：$f(x+\Delta x)\approx f(x)+f^{'}(x)\Delta x+\frac{1}{2}f^{''}(x)\Delta^2 x$
+**$T$表示树的叶节点数量**
 
-$L^{(t)}\approx\sum_{i=1}^n[l(y_i,\hat{y}_i^{t-1})+g_if_t(x_i)+\frac{1}{2}h_if_t^2(x_i)]+\sum_t\Omega(f_t)$
-
-$g_i=\frac{\partial{l(y_i,\hat{y}_i^{t-1})}}{\partial\hat{y}_i^{t-1}}$
-
-$h_i=\frac{\partial{l^2(y_i,\hat{y}_i^{t-1})}}{\partial{\hat{y}_i^{t-1}}^2}$
-
+使用二阶泰勒展开：
+$$
+f(x+\Delta x)\approx f(x)+f^{'}(x)\Delta x+\frac{1}{2}f^{''}(x)\Delta^2 x\\
+L^{(t)}\approx\sum_{i=1}^n[l(y_i,\hat{y}_i^{t-1})+g_if_t(x_i)+\frac{1}{2}h_if_t^2(x_i)]+\Omega(f_t)\\
+g_i=\frac{\partial{l(y_i,\hat{y}_i^{t-1})}}{\partial\hat{y}_i^{t-1}}\\
+h_i=\frac{\partial{l^2(y_i,\hat{y}_i^{t-1})}}{\partial{\hat{y}_i^{t-1}}^2}
+$$
 移除掉常数项：
-
-$L^{(t)}\approx\sum_{i=1}^n[g_if_t(x_i)+\frac{1}{2}h_if_t^2(x_i)]+\sum_t\Omega(f_t)$
-
+$$
+L^{(t)}\approx\sum_{i=1}^n[g_if_t(x_i)+\frac{1}{2}h_if_t^2(x_i)]+\Omega(f_t)
+$$
 替换$f_t(x_i)$为$w_j$，做一下符合整合：
-
-$L^{(t)}=\sum_{j=1}^T[(\sum_{i\in I_j})w_j+\frac{1}{2}(\sum_{i\in I_j}h_i+\lambda)w_j^2]+\gamma T$
-
-其中$I_j$表示叶节点j的样本。对于当前树结构，有最优的L，对w求导：
-
-$\frac{\partial L^{(t)}}{\partial w_j}=\sum_{j=1}^T[(\sum_{i\in I_j})+(\sum_{i\in I_j}h_i+\lambda)w_j]=0$
-
-$w_j^*=-\frac{\sum_{i\in I_j}g_i}{\sum_{i\in I_j}h_i+\lambda}$
+$$
+L^{(t)}=\sum_{j=1}^T[(\sum_{i\in I_j}g_i)w_j+\frac{1}{2}(\sum_{i\in I_j}h_i+\lambda)w_j^2]+\gamma T
+$$
+其中$I_j$表示叶节点j的样本。对于当前这颗树的结构，有最优的L，对w求导：
+$$
+\frac{\partial L^{(t)}}{\partial w_j}=\sum_{j=1}^T[(\sum_{i\in I_j}g_i)+(\sum_{i\in I_j}h_i+\lambda)w_j]=0\\
+w_j^*=-\frac{\sum_{i\in I_j}g_i}{\sum_{i\in I_j}h_i+\lambda}
+$$
+**在网易雷火的面试中被问到gradient boost中的gradient有多少维，从loss的式子中就能看到，所谓gradient boost就是期望在分裂时找到使loss最小的那个w。那么不论是一阶导还是二阶导，最后的$w^*$都是用gradient或者hessian表示的。**==从$w^*$上看，所谓gradient的维度，就是当前叶节点数据量的大小，有多少数据就有多少维。==
 
 令$G=\sum_{i\in I_j}g_i$，$H=\sum_{i\in I_j}h_i$，最优解L为：
-
-$L^{(t)}=-\frac{1}{2}\sum_{j=1}^T\frac{G^2}{H+\lambda}+\gamma T$
-
+$$
+L^{(t)}=-\frac{1}{2}\sum_{j=1}^T\frac{G^2}{H+\lambda}+\gamma T
+$$
 这就是xgb里面的impurity。
 
 所以分裂时，可以计算如下增益：
+$$
+L_{split}=\frac{1}{2}[\frac{G_L^2}{H_L+\lambda}+\frac{G_R^2}{H_R+\lambda}-\frac{G^2}{H+\lambda}]-\gamma
+$$
 
-$L_{split}=\frac{1}{2}[\frac{G_L^2}{H_L+\lambda}+\frac{G_R^2}{H_R+\lambda}-\frac{G^2}{H+\lambda}]-\gamma$
+### 分裂点选取
+
+一般分裂点选取有2种方法，xgb最初发明了weighted quantile sketch。但是目前普遍使用的还是lgb的histogram算法，xgb后期也支持。
+
+1. exact greedy（精确贪婪）：对所有特征值进行排序，然后遍历。（论文Alg.1）
+
+2. approximate（近似）：global，**建树前分好桶**，计算好所有的候选分裂点，之后分裂只从里面的点选择，所以一开始需要计算的候选点比较多。也就是分桶要细，否则后面分裂时粒度太粗可能性能下降；local，每次分裂都做分桶计算。；当global够细时，与local性能相当。（论文Alg.2）
+
+3. weighted quantile sketch（加权分位数）：从以下公式推导可以得到所谓的weight：
+   $$
+   L^{(t)}=\sum_{i=1}^n[g_if_t(x_i)+\frac{1}{2}h_if_t^2(x_i)]+\Omega(f_t)\\
+   =\sum_{i=1}^n[g_if_t(x_i)+\frac{1}{2}h_if_t^2(x_i)+\frac{g_i^2}{2h_i}]+\Omega(f_t)+const\\
+   =\sum_{i=1}^n\frac{1}{2}h_i[f_t(x_i)-(-\frac{g_i}{h_i})]^2+\Omega(f_t)+const
+   $$
+   
+   从最后的公式上看loss，$\frac{1}{2}h_i$相当于weight，label为$(-\frac{g_i}{h_i})$的平方损失。
+   
+   这个算法的证明很复杂，简单总结：按$x_{ik}$排序，累加$h_i$再除以$\sum h_i$作为rank。当相邻两点的rank超过$\epsilon$时，就分割。这样可近似得到$\frac{1}{\epsilon}$个桶，桶内的权重$h_i$相近。[参考博文](https://blog.csdn.net/anshuai_aw1/article/details/83025168)
+
+### 稀疏数据处理
+
+稀疏原因：
+
+* 缺失值，missing
+* one-hot
+* zeros
+
+先用无缺失值的数据找分裂点，然后分别尝试把有缺失值的数据放到左右两侧，记住loss小的方向。在predict时就用训练好的方向处理含缺失值的数据。
+
+### 系统设计
+
+1. 列并行（特征并行）：每列数据为1个block，以csc方式压缩存储。对block排序和计算信息可以并行处理，用分布式加速或者在磁盘上排序。
+
+   复杂度：
+
+   |          | exact                      | approximate                |
+   | -------- | -------------------------- | -------------------------- |
+   | 原始     | O($kd||x||_0logn$)         | O($kd||x||_0logq$)         |
+   | 并行处理 | O($kd||x||_0+||x||_0logn$) | O($kd||x||_0+||x||_0logB$) |
+
+   d：深度
+   
+   k：树的数量
+   
+   q：桶数
+   
+   $||x||_0$：不含缺失值的样本数
+   
+   n：样本总数
+   
+   B：block内样本数
+
+2. 缓存命中：排序是对指针排序，所以访问数据一般不是在内存里的连续区域中
+   * 对于exact：在thread内分配buffer，取数据计算，这样可以提高缓存命中
+   * 对于approximate：合理的block size能保证命中率，作者实验后选择用$2^{16}$样本为1个block
+
+3. 外存计算加速
+   * 独立thread从磁盘预读取到主存，减少I/O开销
+   * block压缩，index采用offset方式存储，避免存大数，只需要block起始地址+offset。压缩率26%-29%。读取时用独立thread解压
+   * block sharding。多磁盘利用技术
+
+## LightGBM
+
+### 基础公式
+
+在论文中用的square loss的一阶泰勒展开，称为variance gain，在特征j，节点o上对点d的增益:
+$$
+V_{j|o}(d)=\frac{1}{n_0}(\frac{(\sum_{\{x_i\in o:x_{ij\leq d}\}}g_i)^2}{n_{l|o}^j(d)}+\frac{(\sum_{\{x_i\in o:x_{ij>d}\}}g_i)^2}{n_{r|o}^j(d)})\\
+d^*=\arg\max\limits_dVj(d)
+$$
+==实际代码用的和xgb一样的loss公式，用了二阶展开，在goss.hpp源码中，g=abs(grad*hess)==
+
+从==源码==上看，lgb支持用二阶展开：
+$$
+GetLeafSplitGain\\
+\downarrow\\
+GetSplitGain\\
+\downarrow\\
+CaculateSplittedLeafOutput=-\frac{ThresholdL1(G,l1)}{H+l2}\\
+ThresholdL1=\max(0,fabs(s)-l1)\\
+\rightarrow 
+Left\_output,Right\_output\\
+\downarrow\\
+GetLeafSplitGainGivenOutput\\=-[2ThresholdL1(G,l1)\frac{-ThresholdL1(G,l1)}{H+l2}+(H+l2)(\frac{-ThresholdL1(G,l1)}{H+l2})^2]\\
+=\frac{[Threshold(G,l1)]^2}{H+l2}\\
+\downarrow\\
+sum\\
+\downarrow\\
+return
+$$
+去掉Threshold就和xgb一样了，此处$l2$对应xgb的$\lambda$
+
+分裂决策：min_gain_shift=gain_shift+meta_->config->min_gain_to_spilt，当左右子节点增益>min_gain_shift时才分裂
+
+**关于binary_logloss的计算：**用$y\in \{1,-1\}$表示label，源码会把0换为-1。原logistic loss可以改写为：
+$$
+L=\prod_{i=1}^nP(Y=y|x)=\prod_{i=1}^n\frac{1}{1+e^{-yf}}\\
+LL=-\sum_{i=1}^nln(1+e^{-yf})\\
+NLL=\sum_{i=1}^nln(1+e^{-yf})，lgb的目标函数\\
+\frac{\partial NLL}{\partial f}=\frac{-y}{1+e^{-yf}}\\
+\frac{\partial^2 NLL}{\partial f^2}=\frac{e^{yf}}{(1+e^{yf})^2}
+$$
+
+
+### gradient-based one-side sampling（GOSS）
+
+$$
+\widetilde V_j(d)=\frac{1}{n}(\frac{(\sum_{x_i\in Al}g_i+\frac{1-a}{b}\sum_{x_i\in Bl}g_i)^2}{n_l^j(d)}+\frac{(\sum_{x_i\in Ar}g_i+\frac{1-a}{b}\sum_{x_i\in Br}g_i)^2}{n_r^j(d)})
+$$
+
+1. 按梯度绝对值递减排序，取top a%作为大梯度样本集A。剩余样本中，随机抽b%作为小梯度样本集B。为了修正样本减少导致样本分布改变的问题，对B乘上系数$\frac{1-a}{b}$作为补偿
+2. 当样本量大时，GOSS很准确
+3. 抽样有助于增加基学习器的多样性，进而改善泛化性能
+
+### exclusive feature bundling（EFB）
+
+**默认参数enable_bundle=true，max_conflict_rate=0**
+
+**基本思想**
+
+1. 把稀疏且互斥的特征组合成一个特征。如one-hot编码，不会同时取相同的值
+
+2. 允许有冲突，放宽条件后可以进一步整合
+
+3. 为了减少bundling复杂度，将排序策略改为对0计数，0多的冲突概率就低
+
+4. 组合时看值域，通过offset可以将这些值的直方图进行区分，进而保留被组合特征的原始信息
+   $$
+   e.g.\ A\sub[0,10)\ B\sub[0,20)\\ \widetilde B\in[10,30)\\ offset=10
+   $$
+
+5. 建histogram时不考虑0值，O(#data)->O(#non-zero data)
+6. **直方图加速增加了空间局部性，提升缓存命中**
+
+**EFB详解**
+
+1. O(#feature\*#data)->O(#bundle\*#data)，若允许冲突，则精度损失O$([1-r]*n)^{-\frac{2}{3}}$，r为冲突率
+
+2. 算法
+
+   1. 建图G，边权重表示两两特征之间的冲突数量
+   2. 按度降序排序
+   3. 遍历，对当前特征i，查看是否能加入bundle（计算该特征与bundle内特征的冲突数，若小于阈值k，则放入，否则新建1个bundle）
+
+   基于**图的涂色算法**的复杂度为O(#$feature^2$)
+
+   为了优化，如前文所述，按非0值个数排序，非0越多越可能冲突
+
+3. 函数
+
+   1. GetConfilctCount计算非0数
+
+   2. FindGroups
+
+      判断是否可合并：
+
+      a. 若$0\leq冲突数cnt\leq剩余冲突数rest\_max\_cnt$，把当前特征index假如bundle，bundle内冲突数group_conflict_cnt[gid]+=cnt；group_non_zero_cnt[git]+=cur_non_zero_cnt
+
+      b.否则，新建group
+
+   3. FastFeatureBundling进一步捆绑。
+
+      针对bundle_size()为1到5之间的bundle：
+
+      sparse_rate=1-cnt_non_zore/num_data
+
+      若sparse_rate>=sparse_threshold并且is_enable_sparse就拆分回去，因为稀疏度高的bundle对加速作用不大
+
+      ==最后shuffle bundle，why？？？==
+
+### 直方图加速（histogram optimization）
+
+训练前先把特征值转为bin value（就是hash code），可用BinMapper::ValueToBin(double value)查找。
+
+==直方图存储两个信息：bin内$g_i$之和；bin内样本数==
+
+**划分方法**
+
+默认255个bin（1Byte可以表示的值)
+
+1. **numeric**
+
+   1. 若unique value比max_bin少或者相等，取两值的中点放入bin中
+
+   2. 若unique value > max_bin，表明有些value要公用1个bin
+
+      **bin的表示方法**：vector\<double\> upper_bounds；vector\<double\> lower_bounds
+
+      a. 先total_cnt / max_bin可得平均bin内样本数mean_bin_size
+
+      b. 遍历unique value，若单个值的个数超出mean_bin_size，则标记vector\<bool\> is_big_count_value[i] = true；rest_bin_cnt--；rest_sample_cnt -= counts[i]
+
+      c. 计算剩余样本的mean_bin_size = rest_sample_cnt / rest_bin_cnt
+
+2. **categorical**
+
+   1. 对于每个特征，按frequency count统计其下各值的频数，递减排序。==1个distinct值对应1个bin，频数大于cat_smooth（默认10，减少noise）的bin才参与下面的spilit gain计算==
+   
+   2. 忽略出现次数少的值（后1%）
+   
+   3. 建立bin\_2\_categorical\_（vector）；categorical\_2\_bin\_（unordered_map）
+   
+   4. 划分方式：
+   
+      a. 若该特征的bin个数<=max_cat_to_onehot（default=4），用**one vs other**划分
+   
+      b. 按$\frac{G}{H+cat\_smooth}$递增排序，左右分别扫描max_num_cat=min(max_cat_threshold（default=32）, (used_bin+1) / 2)个bin，计算增益GetSplitGain。相当于**many vs many**。
+   
+      max_num_cat参数作用：
+   
+      1. 减少并行计算时的通信量
+      2. 正则化
+      3. 因为直方图是做差加速，所以最多遍历一半
+   
+   ConstructHistogram用了4段重复for循环代码，目的是编译时做并行优化。
+
+**加速示例**
+
+假设特征1的bin1分裂，先得左子节点（其他特征有ValueToBin可算所在bin，然后减去对应的g、h、样本数量）
+
+用父节点bin减去左子节点就得③
+
+<img src="./pic/histogram_accelerate.jpg" alt="histogram_accelerate" style="zoom:50%;" />
+
+**内存开销**
+
+| model | method     | bigO                         | note                                                         |
+| ----- | ---------- | ---------------------------- | ------------------------------------------------------------ |
+| xgb   | pre-sorted | O(2\*#data\*#feature*4Bytes) | float32保存特征值，排序好的索引也要32位unsigned_int存储      |
+| lgb   | histogram  | O(#data\*#feature*1Byte)     | 1Byte保存bin的索引（256bins），连续访问histogram的bins，缓存命中率高 |
+
+### 并行计算
+
+1. **特征并行**
+
+   |      | 传统算法                                                     | lgb算法                                                      |
+   | ---- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+   | 方法 | 1. 垂直划分数据，不同的worker有不同的特征集；2. 每个worker找到局部最佳的划分点；3. worker之间点对点通信，得全局最优切分点；4. 具有全局最优点的worker划分数据，然后广播切分后的结果（左右子树的instance indices）；5. 其他worker根据indices也进行划分 | 每个worker保存所有数据，减少通信：1. 每个worker找局部最优切分点；2. worker用P2P通信，得全局最优切分点；3. 每个worker根据全局最优点切分 |
+   | 缺点 | 1. 无法加速split，O(#data)；2. 广播开销O(#data/8)，用bitmap  | 1. split仍然是O(#data)；2. 存储开销大                        |
+
+2. **数据并行**
+
+   | 传统算法                                                     | lgb算法                                                      | voting parallel（PV-Tree，也是lgb团队的文章）                |
+   | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+   | 1. 水平切分数据，各worker拥有部分数据；2. 每个worker根据本地数据构建histogram；3. 合并局部histogram得全局histogram，有两种方式：P2P，O(#machine\*#feature\*#bin)；All reduce，有一个中心节点，合并后返回结果，O(2#feature*#bin)；4. 根据全局直方图找最优切分点 | 1. reduce scatter（先归约再散发）将不同worker的不同特征的histogram合并，在worker局部合并的直方图中找局部最优划分，最后同步全局最优；2. 直方图做差减少通信，O(0.5#feature*#bin) | 1. 水平切分数据，各worker拥有部分数据；2. local voting，每个worker构建本地直方图，找top-k最优点；3. global voting：中心节点聚合后得到top-2k划分点；4. best attribute identification，中心节点向worker收集这top-2k个特征的直方图，合并，得全局最优；5. 广播回各worker，各worker进行本地划分；6. woker数量够多时，top-2k含全局最优概率非常高，O(#feature\*#bin)->O(2k\*bin) |
+
+   
 
 ## CatBoost
 
