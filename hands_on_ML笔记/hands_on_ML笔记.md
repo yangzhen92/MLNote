@@ -1393,6 +1393,8 @@ ABDT中一般用的是CART，因为CART的算法在算impurity的时候没有给
 
 #### Gradient Boosted Decision Tree（GBDT）
 
+==梯度提升是通过不断的迭代，在函数空间中用梯度下降的方法组合弱学习器。==
+
 ##### AdaBoost的α设定推导
 
 首先从优化的角度看AdaBoost的u是怎么更新的：
@@ -2971,6 +2973,78 @@ $$
    
 
 ## CatBoost
+
+### 特点
+
+* 对于类别特征，首次分裂不组合特征，之后每次分裂都自动组合（concatenate）几个特征：**max_ctr_complexity(default=4，论文实验表示设为2效率最高)**
+* ordered boosting：消除prediction shift，**论文表示这是现有boost模型都存在的问题**
+* ordered target statistics：用target编码，但是消除了一般target encoding面临的问题。==需要大显存，否则还是传统的boosting方法==
+* GPU学习，CPU打分
+* 基学习器默认用oblivious tree，对称树，每个level分裂标准都一样。好处是减少过拟合，显著加速测试
+
+### target statistics
+
+针对类别特征，结合label做编码，从kaggle流出的一种方法。
+
+对于类别特征，极端的一种场景是对UID做one-hot，显然对树模型行不通，模型复杂度太大。
+
+**LightGBM从源码上看就知道，用的是梯度信息编码，存在的问题是较大的计算复杂度和存储开销，同时把少数类归为一类丢失了信息。论文中提到，基于target的方法要远比基于梯度的方法损失小。**
+
+#### greedy ts
+
+$x_k^i$表示第k个样本的i号特征
+$$
+\hat{x}_k^i=\frac{{\sum_{j=1}^n}_{\{x_j^i=x_k^i\}}\cdot y_j+ap}{{\sum_{j=1}^n}_{\{x_j^i=x_k^i\}}+a}
+$$
+在当前特征下，用水平（level，也就是unique value）出现频数乘以label。a为参数，p=avg(y)，prior
+
+ap项是为了消除对低频噪声的敏感。当a=0时，就是普通的ts，当一个类只有一个样本时，就直接暴露了label（data leakage）
+
+缺陷：train、test分布不同，肯定会有编码偏差，称之为conditional shift
+
+避免方式：就是计算$x_k$的编码时排除$x_k$，显然计算量太大了
+
+#### holdout ts
+
+就是把编码分成两半，一半用于编码，另一半training，这样未能充分利用数据
+
+#### leave-one-out ts
+
+同样有data leakage问题，并且受高频特征影响
+
+#### ordered ts
+
+受online learning的启发，按时间顺序接受样本。通过随机重排得到每个样本的order，这就相当于一个虚拟的时间。在编码时，只用“历史”数据对当前的这笔样本编码，显然，一开始那部分样本的variance会很大，所以每次boost时都重排一次
+
+### ordered boosting
+
+因为是加性模型， 一开始就有conditional shift加上每次ts都用相同的编码，到后面问题就更大了**（证明太复杂看不懂）**。下采样可以缓解这个问题，但是不能治本。
+
+要避免计算样本$x_k$residual（不论什么loss）产生shift，$x_k$就不能作为$F^{t}$的训练数据。如果直接用这个方法，那么需要n个model，n倍内存。
+
+**理论上算法：**
+
+1. 对于n笔数据，生成n+1个随机重排$\sigma$。多出来的$\sigma_0$用来最后计算叶节点分数，$\sigma_1$到$\sigma_n$用来建树
+2. 每个$\sigma$都有对应的$M$
+3. 每一轮迭代，首先用当前$\sigma$对应的模型$M^{t-1}_k$计算$\sigma$中$x_k$的residual，然后再学习。直到当前$\sigma$所有的residual都用$M_k^{t-1}$算完
+4. 最后$M^{t-1}$学习当前$\sigma$所有的residual，得到$M^t$。每个$\sigma$都重复2、3步直到全部更新完，这样算完成了一次迭代
+5. 最终，从这些$\sigma$里面随机抽一个$M$，用余弦相似度算loss找到最优分裂点，再整合到$F^{t-1}$里面，得到$F^t$
+6. 在候选分裂评估过程当中，第$i$个样本的叶子节点的值$\delta(i)$由与$i$同属一个叶子的$leaf_r(i)$的所有样本的前$p$个样本的梯度值$grad_{r,\sigma(i)-1}$求平均得到
+7. 计算$F^t$叶节点分数时，用$\sigma_0$来算
+
+**实际应用：**
+
+为了减少复杂度，用$log_2n$指数间隔去存储M。为了避免小index样本的高variance，在算loss的时候就不用了
+
+### bayesian bootstrap
+
+相关参数：bagging_temperature（default=1）
+
+支持对样本抽样，bayesian bootstrap相当于软抽样（smooth），即样本权重并不是非0即1。一般广义的bayesian bootstrap认为样本固定，权重为$\frac{k_i}{n}$，$k_i$表示样本$x_i$被抽到的次数，n表示抽样次数。
+
+catboost从指数是分布中采权重：$w(x)=\lambda\cdot e^{-\lambda x}$
+
+
 
 ### grow policy
 
