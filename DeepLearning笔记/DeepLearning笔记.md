@@ -4,19 +4,25 @@
 
 ![DL task](./pic/dl_task.png)
 
-![dl framework](/pic/dl_framework.png)
+![dl framework](./pic/dl_framework.png)
 
-# 网络参数数量和深度
+# 浅层网络vs深层网络
+
+[参考李宏毅课程]([http://speech.ee.ntu.edu.tw/~tlkagk/courses/MLDS_2018/Lecture/DeepStructure%20(v9).pdf](http://speech.ee.ntu.edu.tw/~tlkagk/courses/MLDS_2018/Lecture/DeepStructure (v9).pdf)
+
+对于L-lipschitz函数，可以用piecewise linear function逼近，配合relu，可以表示分段函数。
+
+从实验上看，同等参数量下，深层网络更好。
 
 为何成为深度学习，因为网络越深，越容易拟合复杂函数。如下图：
 
-![numbers of parameter and unit](/pic/why_deep.png)
+![numbers of parameter and unit](./pic/why_deep.png)
 
 浅且大而宽的网络最终能够覆盖到目标函数，但是这样效率太低。而深且窄的网络很容易达到浅且宽的网络的能力。就像逻辑电路一样，深的逻辑门组合容易实现复杂逻辑，并且需要的组件少于直白的逻辑电路。
 
 深的网络指数级优于浅的网络，若浅的网络需要O(n)个神经元，则深的网络神经元数为O(logn)（以2为底）。
 
-![deep vs shallow](/pic/deep_vs_shallow.png).
+![deep vs shallow](./pic/deep_vs_shallow.png).
 
 我们可以利用多组ReLu形成“piecewise linear function”去拟合任意函数，只要该函数是“L-Lipschitz”函数，即函数足够平滑。如图：
 
@@ -25,6 +31,8 @@
 ![L-Lipschitz](pic\L_Lipschits.jpg)
 
 ![piecewise2](pic\relu_piecewise2.jpg)
+
+![shallow_vs_deep](./pic/shallow_vs_deep.png)
 
 # 优化
 
@@ -2432,4 +2440,84 @@ class WGANGP():
             callback.writer.add_summary(s, epoch)
             callback.writer.flush()
 ```
+
+# RNN系列
+
+符号：
+
+* T，tanh
+* S，sigmoid
+* 1-，减1
+
+## vanilla RNN
+
+recurrent neural network
+
+缺点：short-term memory
+
+构成：
+
+* hidden units（这里还不叫state）
+* input
+
+![vanilla_rnn](./pic/vanilla_rnn.jpeg)
+
+## LSTM
+
+long short-term memory
+
+构成：
+
+* forget gate：决定增删记忆
+* input gate：
+  * sigmoid：决定哪些信息重要
+  * tanh：正则化，把值压缩到-1到1之间
+* output gate：决定下一个hidden state
+
+注意到cell state过来multiply是决定保留、删除信息，之后add相当于update。
+
+cell state可以看做网络的记忆，用于克服short-term memory问题，通过input gate、forget gate增删记忆。
+
+![lstm](./pic/lstm.jpeg)
+
+## GRU
+
+gated recurrent units
+
+构成：
+
+* update gate：决定信息增删
+* reset gate：决定信息增删
+
+![gru](./pic/gru.jpeg)
+
+# Seq2Seq中的Attention
+
+## attention基础
+
+[参考博文](https://towardsdatascience.com/attn-illustrated-attention-5ec4ad276ee3)
+
+因为short-term memory的问题，在encode时导致早期信息丢失，故用attention机制，给decoder提供encoder每个hidden state的信息，让decoder关注有用的信息。
+
+步骤：
+
+1. encoder完成编码，保留中间的encoder hidden state
+2. decoder每解码一轮，都要用decoder hidden state与所有的encoder hidden state计算score（有很多种score function，参见下文）
+3. score通过softmax，得到attention distribution
+4. 把所有的attention distribution加起来，得到一个alignment vector
+5. 最后把alignment vector给到decoder，这时候怎么利用要看具体的网络设计，参考博文中有详解
+
+![seq2seq2_plus_attension](./pic/seq2seq2_plus_attension.jpeg)
+
+## score function
+
+![score_function](./pic/score_function.png)
+
+# Normalization
+
+[参考博文](https://mp.weixin.qq.com/s?__biz=MzU1NTUxNTM0Mg==&mid=2247491511&idx=1&sn=8b4f2cab2bcdf399a467dab2409fff1b&chksm=fbd27316cca5fa00d3b4375f4a03c9aa603aa9edcdac2fe739e46026a6539bdf4b7c1b1db864&scene=0&xtrack=1&key=2f4703df4564706a70c26b4dd2c88734ee810bcec6f5e144eb09f84727db83b7651bc1efeb15b6b08b3e0eca518d0e437206abe0d3a15025b6982b541cce00f6f9a8664cbfc010e15823cc8c77cb4887&ascene=1&uin=MjQ4Nzc3NDg0MA%3D%3D&devicetype=Windows+10&version=62060833&lang=zh_CN&pass_ticket=gJDyuYdBOHUBrwixnyKb%2FG70tw9dDlX0sdB3TrdtiD2q%2FY2eNeFBEiSzakqOfTBG)
+
+
+
+
 
