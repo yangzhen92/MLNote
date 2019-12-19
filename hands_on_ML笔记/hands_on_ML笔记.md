@@ -2574,7 +2574,7 @@ BorderlineSMOTE(sampling_strategy='auto', random_state=None, k_neighbors=5, n_jo
 
 ## 下采样（降采样）
 
-待补充
+见DataMining笔记。
 
 
 
@@ -3024,30 +3024,362 @@ ap项是为了消除对低频噪声的敏感。当a=0时，就是普通的ts，�
 
 **理论上算法：**
 
-1. 对于n笔数据，生成n+1个随机重排$\sigma$。多出来的$\sigma_0$用来最后计算叶节点分数，$\sigma_1$到$\sigma_n$用来建树
-2. 每个$\sigma$都有对应的$M$
-3. 每一轮迭代，首先用当前$\sigma$对应的模型$M^{t-1}_k$计算$\sigma$中$x_k$的residual，然后再学习。直到当前$\sigma$所有的residual都用$M_k^{t-1}$算完
-4. 最后$M^{t-1}$学习当前$\sigma$所有的residual，得到$M^t$。每个$\sigma$都重复2、3步直到全部更新完，这样算完成了一次迭代
-5. 最终，从这些$\sigma$里面随机抽一个$M$，用余弦相似度算loss找到最优分裂点，再整合到$F^{t-1}$里面，得到$F^t$
-6. 在候选分裂评估过程当中，第$i$个样本的叶子节点的值$\delta(i)$由与$i$同属一个叶子的$leaf_r(i)$的所有样本的前$p$个样本的梯度值$grad_{r,\sigma(i)-1}$求平均得到
-7. 计算$F^t$叶节点分数时，用$\sigma_0$来算
+1. 对于n笔数据，生成n+1个随机重排$\sigma$。多出来的$\sigma_0$用来最后计算叶节点分数，$\sigma_1$到$\sigma_n$用来建树；
+2. 每个$\sigma$都有对应的$M$；
+3. 每一轮迭代，首先用当前$\sigma$对应的模型$M^{t-1}_k$计算$\sigma$中$x_k$的residual，然后再学习。直到当前$\sigma$所有的residual都用$M_k^{t-1}$算完；
+4. 最后$M^{t-1}$学习当前$\sigma$所有的residual，得到$M^t$。每个$\sigma$都重复2、3步直到全部更新完，这样算完成了一次迭代；
+5. 最终，从这些$\sigma$里面随机抽一个$M$，用余弦相似度算loss找到最优分裂点，再整合到$F^{t-1}$里面，得到$F^t$；
+6. 在候选分裂评估过程当中，第$i$个样本的叶子节点的值$\delta(i)$由与$i$同属一个叶子的$leaf_r(i)$的所有样本的前$p$个样本的梯度值$grad_{r,\sigma(i)-1}$求平均得到；
+7. 计算$F^t$叶节点分数时，用$\sigma_0$来算。
 
 **实际应用：**
 
-为了减少复杂度，用$log_2n$指数间隔去存储M。为了避免小index样本的高variance，在算loss的时候就不用了
+为了减少复杂度，用$log_2n$指数间隔去存储M。为了避免小index样本的高variance，在算loss的时候就不用了。
+
+论文表示，数据量在40k以下的用ordered boost效果好。
 
 ### bayesian bootstrap
 
 相关参数：bagging_temperature（default=1）
 
-支持对样本抽样，bayesian bootstrap相当于软抽样（smooth），即样本权重并不是非0即1。一般广义的bayesian bootstrap认为样本固定，权重为$\frac{k_i}{n}$，$k_i$表示样本$x_i$被抽到的次数，n表示抽样次数。
+支持对样本抽样，bayesian bootstrap相当于软抽样（smooth），即样本权重并不是非0即1。一般广义的bayesian bootstrap认为样本固定，权重为$\frac{k_i}{n}$，$k_i$表示样本$x_i$被抽到的次数，n表示抽样次数
 
-catboost从指数是分布中采权重：$w(x)=\lambda\cdot e^{-\lambda x}$
-
-
+catboost从指数是分布中采权重：$w(x)=\lambda\cdot e^{-\lambda x}$，取0时权重都是1
 
 ### grow policy
 
 - SymmetricTree（默认）：A tree is built level by level until the specified depth is reached. On each iteration, all leaves from the last tree level are split with the same condition. The resulting tree structure is always symmetric.
 - Depthwise（XGB的方式）：A tree is built level by level until the specified depth is reached. On each iteration, all non-terminal leaves from the last tree level are split. Each leaf is split by condition with the best loss improvement.
 - Lossguide（LGB的方式）：A tree is built leaf by leaf until the specified maximum number of leaves is reached. On each iteration, non-terminal leaf with the best loss improvement is split.
+
+# 贝叶斯优化调参（bayesian optimization）
+
+## 理论
+
+一般调参方法有：
+
+1. 人工（manual）
+2. 网格搜索（grid search）
+3. 随机搜索（random search）
+4. 基于模型的贝叶斯优化（bayesian model-based optimization）
+
+从论文《Algorithms for Hyper-Parameter Optimization》实验对比来看，在相同迭代次数下，④最优。
+
+![bayesian_opt](./pic/bayesian_opt.png)
+
+它之所以高效，是因为每次选择超参数的时候都用到了之前的信息。它需要==5个运作条件==：
+
+1. 搜索空间的值域
+2. 目标函数（e.g. accuracy、error rate等常见模型评价指标）
+3. 代理模型（surrogate model，有点wrapper的意思）
+4. 选择下一参数的标准（criteria，selection function）
+5. 采样记录，由（score，hyper parameters）记录构成，用于更新代理模型自身的参数
+
+不同代理模型的3、4（统称为sequential model-based optimization，SMBO）会有差别，代理模型有：
+
+1. gaussian process，能够关注参数之间的联系
+2. random forest regression
+3. tree parzen estimators（TPE），无法捕捉参数之间的关系
+
+在给定搜索值域时，可加入参数分布的先验知识，如：
+
+1. 学习率用lognormal
+   $$
+   f(x)=\frac{1}{x\sigma\sqrt{2\pi}}\exp(-\frac{[lnx-\mu]^2}{2\sigma^2})
+   $$
+   ![lognormal](./pic/lognormal.png)
+
+2. 树的个数，均匀分布
+
+3. 叶节点最小样本数，高斯分布
+
+实际上代理模型是在响应平面（response surface）找局部最优，每次迭代都会更新平面。
+
+大致过程：
+
+1. 探索，在值域内采样得到大致信息
+2. 利用，在有价值的点进行深挖
+
+## tree-based parzen estimator（TPE）
+
+criteria设定：
+$$
+EI_{y^*}(x)=\int_{-\infty}^{y^*}(y^*-y)P(y|x)dy,\ Expected\ Improvement
+$$
+$y^*$表示目标上界，如error rate、rmse等。
+
+假设$y^*$为当前最大的error rate，如果$EI_{y^*}(x)>0$，则表示采样到的点x有改善error rate。
+
+利用贝叶斯公式，可以决定下一轮在什么地方采样：
+$$
+P(y|x)=\frac{P(y)P(x|y)}{P(x)}\\
+\begin{equation}
+p(x|y)=\left\{
+\begin{aligned}
+l(x),\ y<y^* \\
+g(x),\ y \geq y^* \\
+\end{aligned}
+\right.
+\end{equation}
+$$
+$l(x)$和$g(x)$可以用两个kde方程把x拆成两个采样空间，显然在$l(x)$中采样是有助于改善目标函数的。
+
+下面是EI的化简过程，最后可以得到优化目标：
+$$
+EI_{y^*}(x)=\int_{-\infty}^{y^*}(y^*-y)\frac{P(y)P(x|y)}{P(x)}dy\\
+\gamma=p(y<y^*)\\
+p(x)=\int_R p(x|y)p(y)dx=\gamma l(x)+(1-\gamma)g(x) \\
+\int_{-\infty}^{y^*}(y^*-y)P(y)P(x|y)dy=l(x)\int_{-\infty}^{y^*}(y^*-y)p(y)dy=\gamma y^*l(x)-l(x)\int_{-\infty}^{y^*}p(y)dy\\
+finally,\ EI_{y^*}(x)=\frac{\gamma y^*l(x)-l(x)\int_{-\infty}^{y^*}p(y)dy}{\gamma l(x)+(1-\gamma)g(x)}\propto(\gamma+\frac{g(x)}{l(x)}(1-\gamma))^{-1}
+$$
+所以，TPE在$l(x)$中采样，找最大的$\frac{g(x)}{l(x)}$，就可以得到最大的$EI_{y^*}(x)$。
+
+## gaussian process
+
+==这一节我自己也看不懂==
+
+[参考博文](https://zhuanlan.zhihu.com/p/75589452)
+
+**一元高斯：**
+$$
+p(x)=\frac{1}{\sigma\sqrt{2\pi}}\exp(-\frac{[x-\mu]^2}{2\sigma^2})
+$$
+**多元高斯，假设各维度之间独立：**
+$$
+\prod_{i=1}^n p(x_i)=\frac{1}{(2\pi)^{\frac{n}{2}}\prod_{i=1}^n\sigma_i}\exp(-\frac{1}{2}\sum_{i=1}^n\frac{[x_i-\mu_i]^2}{2\sigma_i^2})\\
+x-\mu=(x_1-\mu_1,x_2-\mu_2,...,x_i-\mu_i)^T\\
+协方差矩阵,K=
+\begin{pmatrix}
+     \sigma_1^2 &&& 0 \\
+     & \sigma_2^2 && \\
+     && \sigma_3^2 & \\
+     0 &&& \sigma_4^2 \\
+\end{pmatrix}\\
+\prod_{i=1}^n p(x_i)=\frac{1}{(2\pi)^{\frac{n}{2}}}|K|^{-\frac{1}{2}}\exp(-\frac{1}{2}[x-\mu]^TK^{-1}[x-\mu])
+$$
+如果各维度不独立，K就不是对角阵，上面式子记作：
+$$
+x\sim N(\mu,K)
+$$
+用GP优化超参数，把x看作是超参数向量，每一维都有其对应的高斯分布。对x进行采样，如果无限次采样，那么就得到了一组函数分布。
+
+**GP的定义：**
+
+对于所有的$x=(x_1,x_2,...,n),f(x)=(f(x_1),f(x_2),...,f(x_n))$都服从多元高斯分布，称f是一个高斯过程，表示为：
+$$
+f(x)\sim N(\mu(x),K(x,x))\\
+\mu(x),均值函数，返回各维度的均值\\
+K(x,x),协方差函数（kernel\ function），返回各维度之间的协方差矩阵
+$$
+K决定了GP的性质，一般用RBF：
+$$
+K(x_i,x_j)=\sigma^2\exp(-\frac{||x_i-x_j||_2^2}{2l^2})
+$$
+其中$\sigma$、$l$为超参数。
+
+记GP的先验为$f(x)\sim N(\mu_f,K_{ff})$，对已知观测数据$(x',y)$：
+$$
+\begin{pmatrix}
+f(x)\\
+y
+\end{pmatrix}
+\sim 
+N(
+\begin{pmatrix}
+\mu_f\\
+\mu_y
+\end{pmatrix},
+\begin{pmatrix}
+K_{ff} & K_{fy}\\
+K_{fy}^T & K_{yy}
+\end{pmatrix}
+)\\
+K_{ff}=K(x,x),K_{fy}=K(x,x'),K_{yy}=K(x',x')
+$$
+在已知数据条件下函数分布如下：
+$$
+f|y\sim N(K_{fy}K_{yy}^{-1}y+\mu_f,K_{ff}-K_{fy}K_{yy}^{-1}K_{fy}^T)
+$$
+协方差反映不确定性，越小表明观测点减少的不确定性越多。predict时，用返回的均值和不确定性画图。
+
+**复杂度：**
+
+每一个采样数据都用与更新模型，每次计算都是$O(n^2)$。如果采样n次，则是$O(n^3)$。
+
+**超参数$\sigma$，$l$优化：**
+
+对于不同的$\sigma$、$l$，得到的$f(x)$不同，因此希望最大化边缘对数似然（marginal log likelihood）：
+$$
+logP(y|\sigma,l)=logN(0,K_{yy}(\sigma,l))\\
+=-\frac{1}{2}y^TK_{yy}^{-1}y-\frac{1}{2}log|K_{yy}|-\frac{N}{2}log(2\pi)
+$$
+
+## hyperopt代码
+
+下面的代码摘自本人的ieee-fraud-detection比赛代码，以catboost为例：
+
+```python
+%matplotlib inline
+import matplotlib.pyplot as plt
+
+import pandas as pd
+from catboost import CatBoostClassifier
+from sklearn.model_selection import TimeSeriesSplit, KFold, StratifiedKFold
+
+from hyperopt import hp
+from hyperopt.pyll.stochastic import sample
+from hyperopt.pyll.base import scope
+from hyperopt import tpe
+from hyperopt import Trials
+from hyperopt import fmin
+from hyperopt import STATUS_OK
+
+
+def plot_feature_importance(feature_names, feature_importances, topk=20):
+    feature_importance = pd.DataFrame({'feature':feature_names, 'importance':feature_importances})
+    feature_importance = feature_importance.sort_values('importance', ascending=False)
+
+    fig, ax = plt.subplots(1,1,figsize=(10,15))
+    topk = min(topk, len(feature_names))
+    sns.barplot(feature_importance['importance'][:topk], feature_importance['feature'][:topk], ax=ax)
+    return feature_importance['feature'][:topk]
+
+
+def get_sample_weight(y_train):
+    class_weight = y_train.value_counts()
+    class_weight = class_weight[0]/class_weight[1]
+    sample_weight  = y_train.map({0:1, 1:class_weight})
+    return sample_weight, class_weight
+
+
+def param_filter(params, fixed_param):
+    if fixed_param==None:
+        return params
+    
+    tmp_dict = {}
+    for key, val in params.items():
+        if key not in fixed_param:
+            if type(val)in [float, np.float32, np.float64]:
+                tmp_dict[key] = float('{:.4f}'.format(val))
+            else:
+                tmp_dict[key] = val
+    return tmp_dict
+
+
+epochs = 30
+n_folds = 5
+
+cb_space = {
+    'learning_rate': hp.loguniform('learning_rate', np.log(0.01), np.log(1)),
+    'n_estimators': scope.int(hp.quniform('n_estimators', 400, 800, 1)),
+    'l2_leaf_reg': hp.loguniform('l2_leaf_reg', np.log(1), np.log(10)),
+    'max_depth': scope.int(hp.quniform('max_depth', 5, 9, 1)),  # 默认6，因为是对称树，所以由2^max_depth个叶子，因此很少超过10
+#     'bagging_temperature': hp.uniform('bagging_temperature', 0, 1),  # 暂时不用，以免增加搜索难度，在kaggle notebook上结果不好
+
+    #     'max_ctr_complexity': scope.int(hp.quniform('max_ctr_complexity', 2, 4, 1))  # 特征组合个数
+    # 速度慢是因为2^8=256，这远比lgb叶子数多，不知道xgb有多少叶子。
+    # 并且lgb支持col_sample外加sub_sample。
+    # 此外catboost的特征组合是贪心算法，对速度有极大的影响
+}
+
+cb_fixed_params = {
+    'grow_policy': 'SymmetricTree',  # 每层分裂的特征以及分裂点都一样，这样的树是对称的；Depthwise、Lossguide不支持feature importance
+    'score_function': 'Cosine',  # Cosine、L2、NewtonL2、NewtonCosine，含Newton的用的是二阶泰勒展开，一阶二阶都差不多
+    'nan_mode': 'Min',  # 仅适用于数值特征，类别特征要求自行编码
+#     'boosting_type': 'Plain',  # Ordered、Plain根据数据集大小自动设定，Ordered要非常大的内存，因为OOM了，所以该Plain
+    'one_hot_max_size': 2,  # 小于等于这个数的类别特征，用one-hot编码
+    'max_ctr_complexity': 2,  # 默认4，论文表示大于2提升很少
+    'task_type': 'GPU',
+    'loss_function': 'Logloss',  # CrossEntropy训练速度慢
+    'eval_metric': 'AUC',
+    'thread_count': -1, 
+    'random_seed': 666
+}
+
+fixed_param = list(cb_fixed_params.keys())  # for filter
+
+def cb_objective(params, fixed_param=cb_fixed_params, n_folds=n_folds, cat_features=cat_features):
+
+    global epoch
+    epoch += 1
+    
+    cat_clf = CatBoostClassifier(**params)
+
+    auc_score = []
+    split = TimeSeriesSplit(n_splits=n_folds)
+    start = timer()
+    for train_idx, test_idx in split.split(X_train):
+        X_tr = X_train.iloc[train_idx]
+        X_te = X_train.iloc[test_idx]
+        y_tr = y_train.iloc[train_idx]    
+        y_te = y_train.iloc[test_idx]
+
+        sample_weight, class_weight = get_sample_weight(y_tr)
+        fit_params = {
+            'X': X_tr,
+            'y': y_tr,
+            'eval_set': (X_te, y_te),
+            'cat_features': cat_features,
+            'early_stopping_rounds': 20,
+            'plot': False,
+            'silent': True,
+            'sample_weight': sample_weight,  # 指定label=1的权重，只能用于logloss；class_weight用于多分类
+        }
+        cat_clf.fit(**fit_params)
+        auc_score.append(cat_clf.best_score_['validation']['AUC'])
+    end = timer()
+    
+    score = np.sum(auc_score) / n_folds
+    loss = 1 - score
+    time = end - start
+    params_filtered = param_filter(params, fixed_param)
+    
+    # track process
+    with open('./bayesian_opt_cb.csv', 'a') as f:
+        writer = csv.writer(f)
+        writer.writerow([epoch, score, params_filtered, time])
+    
+    return {'loss': loss, 'params': params_filtered,
+            'epoch': epoch, 'time': time, 'status': STATUS_OK}
+
+global epoch
+epoch = 0
+
+with open('./bayesian_opt_cb.csv', 'w') as f:
+    writer = csv.writer(f)
+    writer.writerow(['epoch', 'score', 'params', 'time'])
+    
+best_res = fmin(fn=cb_objective, space=dict(cb_space, **cb_fixed_params), algo=tpe.suggest, max_evals=epochs, rstate=np.random.RandomState(666))
+
+cat_baye_opt_df = pd.read_csv('./bayesian_opt_cb.csv')
+cat_baye_opt_df.sort_values('score', ascending=False)
+
+cat_baye_opt_df.plot('epoch','score')
+
+cat_best_baye_opt_param = eval(cat_baye_opt_df.sort_values('score', ascending=False).iloc[0]['params'])
+cat_best_baye_opt_param
+
+cat_best_baye_opt_param = eval(cat_baye_opt_df.sort_values('score', ascending=False).iloc[0]['params'])
+cat_best_baye_opt_param
+
+cat_clf = CatBoostClassifier(**dict(cat_best_baye_opt_param, **cb_fixed_params))
+sample_weight, class_weight = get_sample_weight(y_train)
+fit_params = {
+    'X': X_train,
+    'y': y_train,
+    'cat_features': cat_features,
+    'early_stopping_rounds': 20,
+    'plot': True,
+    'silent': True,
+    'sample_weight': sample_weight,  # 指定label=1的权重，只能用于logloss；class_weight用于多分类
+}
+cat_clf.fit(**fit_params)
+
+with open('./cb_feature_importance.csv', 'w') as f:
+    writer = csv.writer(f)
+    writer.writerow(['name', 'score'])
+    for name, score in zip(cat_clf.feature_names_, cat_clf.feature_importances_):
+        writer.writerow([name, score])
+cb_top_fi = plot_feature_importance(cat_clf.feature_names_, cat_clf.feature_importances_, topk=50)
+```
+

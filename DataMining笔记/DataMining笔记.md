@@ -184,9 +184,91 @@ KMeans
 
 # 不平衡数据的问题
 
-* 不用acc。用precision、recall、f1-score、roc-auc、$g-mean=\sqrt{\frac{TP}{TP+FN}·\frac{TN}{TN+FP}}$
-* 加权，代价敏感学习
-* 下采样，random（通常实际效果最好）、ensemble；上采样，random，SMOTE（费内存，易过拟合）
+## 评价指标
+
+* $precision=\frac{TP}{TP+FP}$
+
+* $recall=\frac{TP}{TP+FN}$
+
+* $f1-score=2\frac{P\cdot R}{P+R}$；$\frac{1}{f1-score}=\frac{1}{2}\cdot(\frac{1}{P}+\frac{1}{R})$
+
+* **roc-auc**：y轴为TP，x轴为FP。代码很简单，按概率排序，从小到大扫描计数，算积分。
+
+  百面机器学习p49：若关注主体性能，95%数据下的模型表现，可以抵抗outlier的干扰；若关注模型的整体性能，考虑pr-auc，more informative。
+
+* pr-auc：y轴为precision，x轴为recall
+
+* $g-mean=\sqrt{\frac{TP}{TP+FN}·\frac{TN}{TN+FP}}=\sqrt{reacall\cdot precision}$
+
+## 学习困难的来源
+
+* 过多的少数类样本出现在多少类样本密集的区域。
+* 类别之间的分布严重重叠。
+* 数据中存在噪声，尤其是少数类的噪声。
+* 少数类分布的稀疏性，其子概念（sub-concepts\sub-clusters)仅含少量的样本。若模型容量不够，则分类困难。
+
+## 解决方法
+
+### data-level
+
+**[imblearn](https://imbalanced-learn.org/stable/)上面有详细算法解释，实际效果还是随机采样好。**
+
+imblearn主要还是用了sklearn的算法，在外部附加一些算法逻辑，做成一个wrapper，看tutorial的代码就知道。
+
+好处：去噪；减少数据集规模。
+
+坏处：存在计算效率问题，采样一般基于距离的领域关系来提取数据分布信息（kNN）；易被噪声影响，导致反向优化；过采样生成太多数据降低模型迭代速度；不适合无法计算距离的数据。
+
+#### 欠采样
+
+* **RandomUnderSampler**：随机抽
+
+* **NearMiss**：有3种版本，见下面图解就能理解。缺点：受noise影响，如果有一些少数类样本混入多数类样本中，会导致周边正常的多数类样本被移除。
+
+  **v1:**可以用kNN先fit少数类，然后predict多数类，找出多数类的kNN，去掉平均距离小的那些多数类样本。
+
+  ![nearmiss_v1](./pic/nearmiss_v1.png)
+
+  **v2:**对于每个多数类样本，计算到每个少数类样本的距离；选topk远的k个少数类样本，计算平均距离，去除平均距离大的多数类样本。==（这里可以用kd-tree这样的数据结构，避免遍历计算？）==
+
+  
+
+  ![nearmiss_v2](./pic/nearmiss_v2.png)
+
+  **v3:**v3版内存开销大，容易OOM，分两步走：首先算少数类对于多数类的kNN（先fit多数类，然后predict少数类），这些多数类NN作为候选点；计算候选点到每个少数类的距离，移除平均距离大的那些候选点。==（这里可以用kd-tree这样的数据结构，避免遍历计算？）==
+
+  ![nearmiss_v3](./pic/nearmiss_v3.png)
+
+  
+
+* EditedNearestNeighbours
+
+* **Tomeklinks：**如果两个不同类样本的1NN就是彼此，那就构成一个link。有两种策略：删除link；删除多数类样本。
+
+#### 过采样
+
+少用，增加了模型的训练数据，导致迭代速度慢。
+
+* SMOTE（Synthetic Minority Oversampling Technique）
+* SMOTE-NC（Synthetic Minority Over-sampling Technique for Nominal and Continuous）：支持类别数据
+* Borderline-SMOTE
+* ADASYN
+
+### algorithm-level
+
+一般都是cost-sensitive learning。基本上学习框架都会提供加权的参数。
+
+优：不增加计算复杂度；可用于多分类。
+
+劣：需要领域知识，没有先验知识而只是根据样本数量比设定，不能保证得到好的性能；不能泛化到不同任务；对于神经网络这种结构，用mini-batch training可能会抽不到少数类，此时cost-sensitive不起作用，有可能陷入local optimal。
+
+### ensemble
+
+* SMOTEBoost=SMOTE+Boosting
+* SMOTEBagging=SMOTE+Bagging
+* 基于AdaBoost：EasyEnsemble、BalanceCascade
+
+
 
 # 高基数类别特征（high-cardinality categorical features）
 
@@ -398,4 +480,74 @@ $P(y=1|f(x_i))=\frac{1}{1+e^{Af(x_i)+B}}$
 ### 保序回归（isotonic regression）
 
 非参数方法，适用于任何形状的reliability curve，要求数据量大，有过拟合风险，实战效果未知。
+
+# 类别特征编码
+
+[参考博文](https://towardsdatascience.com/benchmarking-categorical-encoders-9c322bd77ee8)
+
+## LabelEncoder(Ordinal Encoder)
+
+按顺序编码，新类标记为-1
+
+## OneHotEncoder
+
+新类直接标记为0，适用于线性模型
+
+## SumEncoder
+
+每列和为0，新类标记全-1：
+
+| cat  | code1 | code2 | code3 |
+| ---- | ----- | ----- | ----- |
+| A    | 1     |       |       |
+| B    |       | 1     |       |
+| C    |       |       | 1     |
+| D    | -1    | -1    | -1    |
+
+## HelmertEncoder
+
+按类的顺序算占比，适用于有顺序的categorical特征：
+
+| cat  | code1 | code2 | code3 |
+| ---- | ----- | ----- | ----- |
+| A    | 3/4   |       |       |
+| B    | -1/4  | 2/3   |       |
+| C    | -1/4  | -1/3  | 1/2   |
+| D    | -1/4  | -1/3  | -1/2  |
+
+## FrequencyEncoder
+
+按出现频数排名倒序编码，新类标记为1。
+
+==缺陷：对于不同的数据划分编码不一致。==
+
+## TragetEncoder
+
+见MachineLearning笔记Catboost章节。
+
+## WOEEncoder
+
+就是评分卡模型weight of evidence那一套：
+$$
+\hat{x}_k^i=ln(\frac{\frac{n^++a}{y^++2a}}{\frac{n^-+a}{y^-+2a}})
+$$
+$n^+$表示全部正例数，$y^+$表示当前类的正例数，负例同理。$a$算是修正项，可为0。
+
+# 类别特征的验证方法
+
+## direct
+
+容易overfit。
+
+![non_val](./pic/non_val.png)
+
+## singal validation
+
+![singal_val](./pic/singal_val.png)
+
+效果最好，ordered ts必须要用这个方法，要不然前部数据的方差很大。
+
+## double validation
+
+![double_val](./pic/double_val.png)
 
