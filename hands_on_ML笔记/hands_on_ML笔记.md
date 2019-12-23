@@ -3058,9 +3058,13 @@ catboost从指数是分布中采权重：$w(x)=\lambda\cdot e^{-\lambda x}$，�
 
 一般调参方法有：
 
-1. 人工（manual）
-2. 网格搜索（grid search）
-3. 随机搜索（random search）
+1. 人工（manual）：专家知识
+2. 网格搜索（grid search）：需要非常专业的设计，否则不如随机搜索。
+3. 随机搜索（random search）：2012年的《Random Search for Hyper-Parameter Optimization》表示随机搜索优于网格搜索，因为：
+   1. 每个超参数对目标的贡献是不同的，往往就几个重要，所以一般的目标函数对应的高位空间存在low effective dimensionality。网格搜索对每个超参数都平等对待，实际上是不合适的
+   2. 并行异步实验简单方便
+   3. 可随时细化粒度
+   4. 可随时停止
 4. 基于模型的贝叶斯优化（bayesian model-based optimization）
 
 从论文《Algorithms for Hyper-Parameter Optimization》实验对比来看，在相同迭代次数下，④最优。
@@ -3215,6 +3219,8 @@ logP(y|\sigma,l)=logN(0,K_{yy}(\sigma,l))\\
 $$
 
 ## hyperopt代码
+
+==github上有段文字表示可以用MongoDB做并行，在repo里面搜parallel==
 
 下面的代码摘自本人的ieee-fraud-detection比赛代码，以catboost为例：
 
