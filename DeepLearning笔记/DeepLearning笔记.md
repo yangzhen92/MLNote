@@ -2466,6 +2466,10 @@ recurrent neural network
 
 long short-term memory
 
+《LSTM: A Search Space Odyssey》通过实验表明目前各种衍生的RNN模型，没有显著优于LSTM的，GRU结构简单一点，性能差不多。forget gate、output的激活函数在最重要，其他的结构调整没什么作用。
+
+一般的教材都把peepholes去掉了，因为作用不大，还简化了模型。
+
 构成：
 
 * forget gate：决定增删记忆
