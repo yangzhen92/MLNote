@@ -6,6 +6,17 @@
 
 ![dl framework](./pic/dl_framework.png)
 
+# 微分方法（differentiation）
+
+微分方法有如下几种：
+
+* 手动硬编码
+* 基于符号的。典型的就是TF的静态图。
+* 基于数值的。本质上是近似方法，存在精度损失、上溢、下溢问题。并且随着维度增加，例如Jacobian矩阵要2mn的复杂度，m对应x维度，n对应y维度。Hessian矩阵复杂度更高。
+* 基于自动微分。如PyTorch。
+
+![automatic vs symbolic vs numeric differentiation](./pic/automatic vs symbolic vs numeric differentiation.png)
+
 # 浅层网络vs深层网络
 
 [参考李宏毅课程]([http://speech.ee.ntu.edu.tw/~tlkagk/courses/MLDS_2018/Lecture/DeepStructure%20(v9).pdf](http://speech.ee.ntu.edu.tw/~tlkagk/courses/MLDS_2018/Lecture/DeepStructure (v9).pdf)
@@ -78,12 +89,14 @@ ELU > leaky ReLU（及其变体）> ReLU > tanh > sigmoid。 如果运行时性�
 
 ## Batch Normalization
 
+2015年提出，有正则化的作用，减少overfit，似乎可以替代dropout，**主要贡献在于可以用大学习率而不会梯度爆炸，此外还能加速了NN的训练。[实验效果](#Batch Normalization（tf.layers.batch_normalization）)**
+
 批次归一化的好处如下，显然归一化后更容易训练，关于该方法的意义见”Machine Learning笔记“。
 
 * 对于饱和激活函数如sigmoid、tanh等，可以修复梯度消失的问题
 * 修正了interval covariate shift问题，加速了学习速度。因为数据通过前一层layer后，其分布发生了变化，此时后一层layer再学习需要花更多时间。[详解](https://www.zhihu.com/question/38102762)
 * 在原算法的第4步中，添加了线性重组步骤，因此扩大模型容量。因为当$γ=sigma$ 、$β=μ$的时候，BN被还原回去了，相当于没起作用。其中$γ$、$β$是学习的参数。
-* 在训练过程中，使用滑动平均记录$sigma$和$μ$，在测试的时候才能正常的输出。
+* 在训练过程中，使用滑动平均(moving average)记录$sigma$和$μ$，在测试的时候才能正常的输出。
 
 算法如下：
 
@@ -415,7 +428,7 @@ with tf.Session() as sess:
 * 蓝色——不加BN
 * 红色——每层都加BN
 
-![dnn_batch_normalization](/pic/dnn_batch_normalization.jpg)
+![dnn_batch_normalization](./pic/dnn_batch_normalization.jpg)
 
 ```python
 tf.reset_default_graph()
@@ -1571,11 +1584,11 @@ $\sum_{gen}$：生成图像的特征的协方差矩阵
 
 因此有了各种改进衡量P~G~与P~data~二者divergence的方法，衍生出各种GAN：
 
-![LSGAN](/pic/LSGAN.jpg)
+![LSGAN](./pic/LSGAN.jpg)
 
 常用的WGAN，解决了JS divergence在实际数据和生成数据之间没有overlap时，导致的梯度消失问题（没有overlap的时候JS divergence=log2，不论距离多远）：
 
-![WGAN_vs_GAN](/pic/WGAN_vs_GAN.png)
+![WGAN_vs_GAN](./pic/WGAN_vs_GAN.png)
 
 ## 各种GAN的性能对比
 
@@ -1583,7 +1596,7 @@ Google Brain的论文表明，经过实验后发现各种GAN在近似相同条�
 
 FID分数用于衡量图像质量，具有较好的参考性。
 
-![GAN_comparation](/pic/GAN_comparation.jpg)
+![GAN_comparation](./pic/GAN_comparation.jpg)
 
 ## 原始GAN
 
@@ -1593,15 +1606,15 @@ FID分数用于衡量图像质量，具有较好的参考性。
 
 #### generator
 
-![GAN_theory](/pic/GAN_theory.jpg)
+![GAN_theory](./pic/GAN_theory.jpg)
 
 #### discriminator
 
-![GAN_theory2](/pic/GAN_theory2.jpg)
+![GAN_theory2](./pic/GAN_theory2.jpg)
 
 ==为了能够保证有效减少JS divergence，不要update generator太多次，因为这样会导致minimize后反倒会增加JS divergence，因为D是在fixed G的条件下去度量JSD：==
 
-![GAN_theory4](/pic/GAN_theory4.jpg)
+![GAN_theory4](./pic/GAN_theory4.jpg)
 
 #### 损失函数
 
@@ -1611,13 +1624,13 @@ FID分数用于衡量图像质量，具有较好的参考性。
 
 对于D，优化BCE(D(x), 1)\BCE(D(G(z)), 0)。
 
-![GAN_theory3](/pic/GAN_theory3.jpg)
+![GAN_theory3](./pic/GAN_theory3.jpg)
 
 ### 算法
 
 ==D、G的$x_i$各自采样==
 
-![GAN_algorithm](/pic/GAN_algorithm.jpg)
+![GAN_algorithm](./pic/GAN_algorithm.jpg)
 
 先训D，再训G，每隔一定数量的epoch就输出结果观察一下。
 
@@ -1697,7 +1710,7 @@ generated_image = generator.predict(noise, steps=1)
 plt.imshow(generated_image[0, :, :, 0], cmap='gray')
 ```
 
-![DCGAN_generator](/pic/DCGAN_generator.png)
+![DCGAN_generator](./pic/DCGAN_generator.png)
 
 ### discriminator
 
@@ -2521,7 +2534,16 @@ gated recurrent units
 
 [参考博文](https://mp.weixin.qq.com/s?__biz=MzU1NTUxNTM0Mg==&mid=2247491511&idx=1&sn=8b4f2cab2bcdf399a467dab2409fff1b&chksm=fbd27316cca5fa00d3b4375f4a03c9aa603aa9edcdac2fe739e46026a6539bdf4b7c1b1db864&scene=0&xtrack=1&key=2f4703df4564706a70c26b4dd2c88734ee810bcec6f5e144eb09f84727db83b7651bc1efeb15b6b08b3e0eca518d0e437206abe0d3a15025b6982b541cce00f6f9a8664cbfc010e15823cc8c77cb4887&ascene=1&uin=MjQ4Nzc3NDg0MA%3D%3D&devicetype=Windows+10&version=62060833&lang=zh_CN&pass_ticket=gJDyuYdBOHUBrwixnyKb%2FG70tw9dDlX0sdB3TrdtiD2q%2FY2eNeFBEiSzakqOfTBG)
 
+## [BatchNormalization](# Batch Normalization)
 
+第一种是原始BN论文提出的，放在激活函数之前；另外一种是后续研究提出的，放在激活函数之后，不少研究表明将BN放在激活函数之后效果更好。
 
+**Plain**
 
+![BatchNormalization](./pic/BatchNormalization.png)
 
+**CNN**
+
+对于一个mini-batch，BN作用于每个feature map上面的同一个channel。
+
+![BatchNormalization_with_cnn](./pic/BatchNormalization_with_cnn.png)

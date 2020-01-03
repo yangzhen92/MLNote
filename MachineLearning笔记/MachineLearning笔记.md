@@ -111,11 +111,11 @@ origin_bucketize = tf.feature_column.bucketized_column(origin, boundaries=[1,2,3
 
 ## 学习率问题（fixed learning rate）
 
-![gradient_descent_why_eta](/pic/gradient_descent_why_eta.png)
+![gradient_descent_why_eta](./pic/gradient_descent_why_eta.png)
 
 之所常见的公式没有对梯度进行normalize，是因为上图所属，为了保证学习率在根据梯度自适应变化，可以认为eta与梯度的模成正比，这样就得出了fixed learning rate，即常见公式如下：
 
-![gradient_descent_why_eta2](/pic/gradient_descent_why_eta2.png)
+![gradient_descent_why_eta2](./pic/gradient_descent_why_eta2.png)
 
 # 正则化 (regularization)
 

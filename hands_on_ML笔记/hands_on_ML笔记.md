@@ -3220,7 +3220,7 @@ $$
 
 ## hyperopt代码
 
-==github上有段文字表示可以用MongoDB做并行，在repo里面搜parallel==
+==[可以用MongoDB做并行搜索](https://hyperopt.github.io/hyperopt/scaleout/mongodb/)==
 
 下面的代码摘自本人的ieee-fraud-detection比赛代码，以catboost为例：
 
