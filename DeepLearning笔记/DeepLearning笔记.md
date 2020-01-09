@@ -1,5 +1,7 @@
 # 	DL概要
 
+[The-Decade-of-Deep-Learning](https://leogao.dev/2019/12/31/The-Decade-of-Deep-Learning/)
+
 对于一个网络，给定一组参数，就代表一个方程。而网络结构，定义了一个方程集合。
 
 ![DL task](./pic/dl_task.png)
@@ -907,6 +909,8 @@ with tf.name_scope("dnn"):
 
 ==注意卷积的矩阵乘积是hadamard product，不是一般的矩阵点积。==
 
+卷积核的任务是同时映射跨通道信息（z）和空间信息（x、y）。——《Xception:Deep Learning with Depthwise Separable Convolutions》
+
 #### filter（size and padding）
 
  filter的深度和输入一样。
@@ -998,11 +1002,15 @@ array([[303, 483],
 
 ![CNN_pooling2](/pic/CNN_pooling2.jpg)
 
-#### 参数
+#### 参数计算
 
 和卷积的时候的参数差不多一样，也是一种filter：
 
 ![CNN_pooling3](/pic/CNN_pooling3.jpg)
+
+#### average pooling
+
+相当于对每个group求均值作为输出。
 
 ## upsampling
 
@@ -1012,9 +1020,7 @@ array([[303, 483],
 
 
 
-### average pooling
 
-相当于对每个group求均值作为输出。
 
 ### max unpooling
 
@@ -1244,11 +1250,21 @@ ax2.imshow(res_img[1].reshape(28, 28), cmap='gray')
 
 ### 理论
 
+#### 原理
+
+“VAE是GMM distributive representation版本”，也就是infinite gaussian，详解见视频——[李宏毅](https://www.youtube.com/watch?v=8zomhgKrsmQ)
+
+对于GMM，可以确认有多少个成分，而VAE，从$z\sim N(0, I)$里面采样，得到$P(x|z)\sim N(\mu(z),\sigma(z))$，那么mean和variance是无穷的。每一个采样出来的z，都有对应的高斯分布，由此逼近数据的密度函数，得到生成模型。
+
+参见下面的网络结构，z通过NN Encoder得到$\mu(z)$和$\sigma(z)$。
+
+![VAE_theory](./pic/VAE_theory.png)
+
 #### 结构
 
 ![VAE_structure](/pic/VAE_structure.jpg)
 
-#### 实验
+### 实验
 
 VAE问题在于无法提取输入内部component之间的关联，在图像生成时会有瑕疵，而且很模糊。只能通过一个discriminator学习真实图像之间的关联，然后做一个GAN来改善这个问题。
 
@@ -1551,7 +1567,7 @@ Without a good evaluation metric, it is like working in the dark. No good sign t
 
 TensorFlow有现成的接口可以用。
 
-用过预训练的Inception V3提取全连接层之前的2048维向量作为特征。
+用过预训练的**Inception V3**提取全连接层之前的2048维向量作为特征。
 
 $FID=||\mu_{real}-\mu_{gen}||^2+trace(\sum_r+\sum_g-2(\sum_r\sum_g)^{\frac{1}{2}})$
 
