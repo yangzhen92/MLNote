@@ -911,6 +911,10 @@ with tf.name_scope("dnn"):
 
 卷积核的任务是同时映射跨通道信息（z）和空间信息（x、y）。——《Xception:Deep Learning with Depthwise Separable Convolutions》
 
+#### 加速方法
+
+![cnn_accelartaion](./pic/cnn_accelartaion.jpg)
+
 #### filter（size and padding）
 
  filter的深度和输入一样。
@@ -1384,6 +1388,8 @@ for iteration in range(n_iterations + 1):
 # 生成式对抗网络（generative adversarial network, GAN）
 
 Two models are trained simultaneously to find a [Nash equilibrium](https://en.wikipedia.org/wiki/Nash_equilibrium) to a two-player non-cooperative game.
+
+![GAN_timeline](./pic/GAN_timeline.png)
 
 ## 前置理论
 
