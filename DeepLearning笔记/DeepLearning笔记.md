@@ -124,7 +124,20 @@ ELU > leaky ReLU（及其变体）> ReLU > tanh > sigmoid。 如果运行时性�
 
 有个实现小细节：
 
-* 假设dropout rate为p，那么neuron存活率为（1-p）。==因为训练的时候整体neuron的W大部分为0，所以当testing的时候，务必要对整个网络的W乘以（1-p）。==这样保证dropout网络的平均loss和最后testing的loss近似。
+1. 假设dropout rate为p，那么neuron存活率为（1-p）。==因为训练的时候整体neuron的W大部分为0，所以当testing的时候，务必要对整个网络的W乘以（1-p）。==这样保证dropout网络的平均loss和最后testing的loss近似。（这个方法比较麻烦）
+
+2. tensorflow的实现方法是在训练时，计算方法为x\*mask\*scale，scale=1/keep_rate，这样相当于训练时权重w被迫乘以keep_rate，那么inference的时候就不必再乘keep_rate了。（inverted dropout）
+
+   ```python
+   """
+   https://github.com/tensorflow/tensorflow/blob/e5bf8de410005de06a7ff5393fafdf832ef1d4ad/tensorflow/python/ops/nn_ops.py#L4242
+   """
+   random_tensor = random_ops.random_uniform(noise_shape, seed=seed, dtype=x.dtype)
+   keep_prob = 1 - rate
+   scale = 1 / keep_prob
+   keep_mask = random_tensor >= rate
+   ret = x * scale * math_ops.cast(keep_mask, x.dtype)
+   ```
 
 ![dropout](./pic/dropout.jpg)
 
@@ -899,6 +912,10 @@ with tf.name_scope("dnn"):
 
 # 卷积神经网络（convolutional neural network, CNN）
 
+## imagenet经典模型复杂度
+
+![imagenet_bigo](./pic/imagenet_bigo.png)
+
 ## 互相关计算
 
 <http://deeplearning.net/software/theano/tutorial/conv_arithmetic.html>
@@ -913,27 +930,33 @@ with tf.name_scope("dnn"):
 
 #### 加速方法
 
+参考文献《Object Detection in 20 Years A Survey》
+
 ![cnn_accelartaion](./pic/cnn_accelartaion.jpg)
+
+#### backbone比较
+
+![cnn_backbone_compare](./pic/cnn_backbone_compare.jpg)
 
 #### filter（size and padding）
 
  filter的深度和输入一样。
 
-![CNN_filters](/pic/CNN_filters.jpg)
+![CNN_filters](./pic/CNN_filters.jpg)
 
 通过一层卷积层后得到的新“图像”：
 
-![CNN_activation_maps](/pic/CNN_activation_maps.jpg)
+![CNN_activation_maps](./pic/CNN_activation_maps.jpg)
 
 如果stride步长使得filter无法匹配image的尺寸，那么可以选择填充==（padding='SAME'，即输入和输出尺寸一样）==或者直接丢弃不匹配的部分==（padding='VALID'）==，下面是padding的示例：
 
-![CNN_padding2](/pic/CNN_padding2.jpg)
+![CNN_padding2](./pic/CNN_padding2.jpg)
 
-![CNN_padding](/pic/CNN_padding.jpg)
+![CNN_padding](./pic/CNN_padding.jpg)
 
 #### 参数
 
-![CNN_parameters](/pic/CNN_parameters.jpg)
+![CNN_parameters](./pic/CNN_parameters.jpg)
 
 #### 生物学上的直觉理解
 
@@ -974,7 +997,15 @@ array([[303, 483],
 
 ![CNN_conv_downsampling](./pic/CNN_conv_downsampling.jpg)
 
-### 分离卷积（separable convolution）
+### 深度可分离卷积（depthwise separable convolution）
+
+参考论文《MobileNets Efficient Convolutional Neural Networks for Mobile Vision Applications》
+#### depthwise
+
+原来的filter是立体，对所有channel负责，修改为一个filter只负责一个channel。
+
+![depth-wise seperable convolution](./pic/depth-wise seperable convolution.jpg)
+
 
 #### pointwise
 
@@ -984,19 +1015,16 @@ array([[303, 483],
 
 ![point-wise seperable convolution](./pic/point-wise seperable convolution.jpg)
 
+实际山pointwise就是1x1 conv，在Inception（GoogleNet）中用于减少计算量、降维。
 
+![1x1_conv](./pic/1x1_conv.png)
 
-#### depthwise
-
-原来的filter是立体，对所有channel负责，修改为一个filter只负责一个channel。
-
-![depth-wise seperable convolution](./pic/depth-wise seperable convolution.jpg)
 
 ### 池化层
 
 作用就是下采样（subsampling，downsampling），以免输入过大：
 
-![CNN_pooling](/pic/CNN_pooling.jpg)
+![CNN_pooling](./pic/CNN_pooling.jpg)
 
 #### max pooling
 
@@ -1004,13 +1032,13 @@ array([[303, 483],
 
 **从实践结果上看，实际上通过大的stride也可以做到。**
 
-![CNN_pooling2](/pic/CNN_pooling2.jpg)
+![CNN_pooling2](./pic/CNN_pooling2.jpg)
 
 #### 参数计算
 
 和卷积的时候的参数差不多一样，也是一种filter：
 
-![CNN_pooling3](/pic/CNN_pooling3.jpg)
+![CNN_pooling3](./pic/CNN_pooling3.jpg)
 
 #### average pooling
 
@@ -1020,7 +1048,7 @@ array([[303, 483],
 
 ### unpooling
 
-![CNN_unpooling](/pic/CNN_unpooling.jpg)
+![CNN_unpooling](./pic/CNN_unpooling.jpg)
 
 
 
@@ -1028,11 +1056,11 @@ array([[303, 483],
 
 ### max unpooling
 
-![CNN_max_unpooling](/pic/CNN_max_unpooling.jpg)
+![CNN_max_unpooling](./pic/CNN_max_unpooling.jpg)
 
 ### up convolution
 
-![CNN_up_convolution](/pic/CNN_up_convolution.jpg)
+![CNN_up_convolution](./pic/CNN_up_convolution.jpg)
 
 ### convolution transpose（deconvolution，空洞卷积）
 
@@ -1441,7 +1469,7 @@ $$
 =-log4+KL(P_{data}||\frac{P_{data}+Pg}{2})+KL(P_{g}||\frac{P_{data}+Pg}{2})\\
 =-log4+2JSD(P_{data}||P_g)
 $$
-Jensen-Shannon Divergence在两个分布相同时等于0，所以上式最优解为-log4，这也是原始GAN容易出现梯度为零，训不起来的原因。
+Jensen-Shannon Divergence在两个分布相同时等于0，所以上式最优解为-log4。但是当二者分布完全不重叠时，JSD为常数，这也是原始GAN容易出现梯度为零，训不起来的原因。
 
 ## GAN对比
 
@@ -1595,7 +1623,7 @@ $\sum_{gen}$：生成图像的特征的协方差矩阵
 
 ### training trick
 
-* Feature Matching：用discriminator的某一层特征替代原输出，比较数据feature之间的距离。
+* Feature Matching：用discriminator的某一层特征替代原输出，比较数据feature之间的距离。（patchgan就是这样）
 * Minibatch Discrimination：在discriminator中间加一层minibatch layer，用于计算输入数据之间的多样性。
 * Historical Averaging
 * One-sided Label Smoothing：不用非0即1的label，改为附近的随机数，如0.8~1.0之间。
@@ -2569,3 +2597,11 @@ gated recurrent units
 对于一个mini-batch，BN作用于每个feature map上面的同一个channel。
 
 ![BatchNormalization_with_cnn](./pic/BatchNormalization_with_cnn.png)
+
+# 图神经网络
+
+李宏毅有GNN的课程，讲的比较明白了。
+
+目前的问题是复杂度高，并且没有一个突出的有效应用场景。在MNIST上做分类要超越简单的MLP，需要巨大的代价。
+
+![gnn_type](./pic/gnn_type.png)
